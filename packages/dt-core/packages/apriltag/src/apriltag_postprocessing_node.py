@@ -67,8 +67,9 @@ class AprilPostPros(object):
 
         self.sub_prePros        = rospy.Subscriber("~detections", AprilTagDetectionArray, self.callback, queue_size=1)
         self.pub_postPros       = rospy.Publisher("~apriltags_out", AprilTagsWithInfos, queue_size=1)
-        self.pub_visualize = rospy.Publisher("~tag_pose", PoseStamped, queue_size=1)
-
+        self.pub_visualize      = rospy.Publisher("~tag_pose", PoseStamped, queue_size=1)
+        self.fake_tag_publisher = rospy.Publisher("~detections", AprilTagDetectionArray, queue_size=1)
+        #  Need to call fake_tag, when FSM_state changed to intersection
         # topics for state machine
         self.pub_postPros_parking = rospy.Publisher("~apriltags_parking", BoolStamped, queue_size=1)
         self.pub_postPros_intersection = rospy.Publisher("~apriltags_intersection", BoolStamped, queue_size=1)
@@ -79,6 +80,37 @@ class AprilPostPros(object):
         value = rospy.get_param(param_name, default_value)
         rospy.set_param(param_name, value)
         return value
+
+    def fake_tag():
+        tags_msg = AprilTagDetectionArray()
+        tags_msg.header.stamp = rospy.Time.now()
+        tags_msg.header.frame_id = ""
+        tag = AprilTagDetection(
+                transform=Transform(
+                    translation=Vector3(
+                        x=p[0], # Here will be hard coded values
+                        y=p[1],
+                        z=p[2]
+                    ),
+                    rotation=Quaternion(
+                        x=q[0],
+                        y=q[1],
+                        z=q[2],
+                        w=q[3]
+                    )
+                ),
+                tag_id=tag.tag_id,
+                tag_family=str(tag.tag_family),
+                hamming=tag.hamming,
+                decision_margin=tag.decision_margin,
+                homography=tag.homography.flatten().astype(np.float32).tolist(),
+                center=tag.center.tolist(),
+                corners=tag.corners.flatten().tolist(),
+                pose_error=tag.pose_err
+            )
+            # add detection to array
+        tags_msg.detections.append(detection)
+        self.fake_tag_publish(tags_msg)
 
     def callback(self, msg):
 
