@@ -147,9 +147,7 @@ class AprilPostPros(object):
         tags_msg.detections.append(tag)
         self.fake_tag_publisher.publish(tags_msg)
 
-    def callback(self, msg):
-
-    def callbackDetections(self, msg):    
+    def callbackDetections(self, msg):
         tag_infos = []
         new_tag_data = AprilTagsWithInfos()
         # Load tag detections message
