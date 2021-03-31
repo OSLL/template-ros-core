@@ -21,7 +21,7 @@ class AprilPostPros(object):
     def __init__(self):
         """ """
         self.node_name = "apriltag_postprocessing_node"
-        self.timestamp = None
+        self.timestamp = rospy.Time(0)
         self.state = None
         self.max_time_waiting = 1
         self.last_time_apr_tag = rospy.Time(0)
