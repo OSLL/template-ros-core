@@ -47,7 +47,6 @@ class RandomAprilTagTurnsNode:
             # rospy.loginfo("Turn type now: %i" %(self.turn_type))
 
     def cbTag(self, tag_msgs):
-        rospy.loginfo('in ')
         if (
                 self.fsm_mode == "INTERSECTION_CONTROL"
                 or self.fsm_mode == "INTERSECTION_COORDINATION"
@@ -95,7 +94,6 @@ class RandomAprilTagTurnsNode:
         rospy.loginfo(f"[{self.node_name}] Shutting down.")
 
     def get_chosen_turn(self): # stub
-        rospy.loginfo("get_chosen_turn()")
         return 0
 
 
