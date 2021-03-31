@@ -117,33 +117,6 @@ class AprilPostPros(object):
             tag_id=58,
             tag_family="tag36h11"
         )
-        '''
-        tag = AprilTagDetection(
-                transform=Transform(
-                    translation=Vector3(
-                        x=0.17, # Here will be hard coded values
-                        y=-0.13,
-                        z=0.11
-                    ),
-                    rotation=Quaternion(
-                        x=0.67,
-                        y=0.73,
-                        z=-0.03,
-                        w=0.05
-                    )
-                ),
-                tag_id=58,
-                tag_family="tag36h11",
-                hamming=0,
-                decision_margin=63.566,
-                homography=[-41.83, 10.072, 441.941, -22.281, 43.970, 154.238, -0.1530, 0.0357],
-                center=[441.9419, 154.3480],
-                corners=[415.42, 185.73, 464.715, 199.214, 480.802, 108.3516, 423.951, 118.906],
-                pose_error=0.000000046
-            )
-        '''
-
-            # add detection to array
         tags_msg.detections.append(tag)
         self.fake_tag_publisher.publish(tags_msg)
 
