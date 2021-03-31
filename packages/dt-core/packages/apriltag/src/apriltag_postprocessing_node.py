@@ -2,7 +2,6 @@
 import rospkg
 import rospy
 import yaml
-import datetime
 from duckietown_msgs.msg import \
     AprilTagsWithInfos, \
     TagInfo, \
