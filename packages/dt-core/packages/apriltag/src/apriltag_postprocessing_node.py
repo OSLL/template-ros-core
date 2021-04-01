@@ -7,7 +7,8 @@ from duckietown_msgs.msg import \
     TagInfo, \
     BoolStamped, \
     AprilTagDetection, \
-    AprilTagDetectionArray
+    AprilTagDetectionArray, \
+    FSMState
 import numpy as np
 import tf.transformations as tr
 from geometry_msgs.msg import PoseStamped, Pose
@@ -16,10 +17,14 @@ from std_msgs.msg import Header
 
 class AprilPostPros(object):
     """ """
+
     def __init__(self):
         """ """
         self.node_name = "apriltag_postprocessing_node"
-
+        self.timestamp = rospy.Time(0)
+        self.state = None
+        self.max_time_waiting = 1
+        self.last_time_apr_tag = rospy.Time(0)
         # Load parameters
         self.camera_x = self.setupParam("~camera_x", 0.065)
         self.camera_y = self.setupParam("~camera_y", 0.0)
@@ -33,40 +38,38 @@ class AprilPostPros(object):
 
         tags_filepath = self.setupParam("~tags_file")
 
-        self.loc = self.setupParam("~loc", -1) # -1 if no location is given
+        self.loc = self.setupParam("~loc", -1)  # -1 if no location is given
         tags_file = open(tags_filepath, 'r')
         self.tags_dict = yaml.safe_load(tags_file)
         tags_file.close()
         self.info = TagInfo()
 
         self.sign_types = {"StreetName": self.info.S_NAME,
-            "TrafficSign": self.info.SIGN,
-            "Light": self.info.LIGHT,
-            "Localization": self.info.LOCALIZE,
-            "Vehicle": self.info.VEHICLE}
+                           "TrafficSign": self.info.SIGN,
+                           "Light": self.info.LIGHT,
+                           "Localization": self.info.LOCALIZE,
+                           "Vehicle": self.info.VEHICLE}
         self.traffic_sign_types = {"stop": self.info.STOP,
-            "yield": self.info.YIELD,
-            "no-right-turn": self.info.NO_RIGHT_TURN,
-            "no-left-turn": self.info.NO_LEFT_TURN,
-            "oneway-right": self.info.ONEWAY_RIGHT,
-            "oneway-left": self.info.ONEWAY_LEFT,
-            "4-way-intersect": self.info.FOUR_WAY,
-            "right-T-intersect": self.info.RIGHT_T_INTERSECT,
-            "left-T-intersect": self.info.LEFT_T_INTERSECT,
-            "T-intersection": self.info.T_INTERSECTION,
-            "do-not-enter": self.info.DO_NOT_ENTER,
-            "pedestrian": self.info.PEDESTRIAN,
-            "t-light-ahead": self.info.T_LIGHT_AHEAD,
-            "duck-crossing": self.info.DUCK_CROSSING,
-            "parking": self.info.PARKING}
+                                   "yield": self.info.YIELD,
+                                   "no-right-turn": self.info.NO_RIGHT_TURN,
+                                   "no-left-turn": self.info.NO_LEFT_TURN,
+                                   "oneway-right": self.info.ONEWAY_RIGHT,
+                                   "oneway-left": self.info.ONEWAY_LEFT,
+                                   "4-way-intersect": self.info.FOUR_WAY,
+                                   "right-T-intersect": self.info.RIGHT_T_INTERSECT,
+                                   "left-T-intersect": self.info.LEFT_T_INTERSECT,
+                                   "T-intersection": self.info.T_INTERSECTION,
+                                   "do-not-enter": self.info.DO_NOT_ENTER,
+                                   "pedestrian": self.info.PEDESTRIAN,
+                                   "t-light-ahead": self.info.T_LIGHT_AHEAD,
+                                   "duck-crossing": self.info.DUCK_CROSSING,
+                                   "parking": self.info.PARKING}
 
+        # ---- end tag info stuff
 
-# ---- end tag info stuff
-
-
-
-        self.sub_prePros        = rospy.Subscriber("~detections", AprilTagDetectionArray, self.callback, queue_size=1)
-        self.pub_postPros       = rospy.Publisher("~apriltags_out", AprilTagsWithInfos, queue_size=1)
+        self.sub_prePros = rospy.Subscriber("~detections", AprilTagDetectionArray, self.callbackDetections,
+                                            queue_size=1)
+        self.pub_postPros = rospy.Publisher("~apriltags_out", AprilTagsWithInfos, queue_size=1)
         self.pub_visualize = rospy.Publisher("~tag_pose", PoseStamped, queue_size=1)
 
         # topics for state machine
@@ -74,28 +77,63 @@ class AprilPostPros(object):
         self.pub_postPros_intersection = rospy.Publisher("~apriltags_intersection", BoolStamped, queue_size=1)
 
         rospy.loginfo("[%s] has started", self.node_name)
+        self.sub_fsm = rospy.Subscriber("~fsm_state", FSMState, self.callbackFSMState)
+        self.fake_tag_publisher = rospy.Publisher("~detections", AprilTagDetectionArray, queue_size=1)
+        self.timer = rospy.Timer(rospy.Duration(1), self.callbackTimer)
+
+    def shutdown_hook(self):
+        rospy.loginfo("Publishing message shutdown")
+
+    def on_shutdown(self):
+        self.shutdown_hook()
+        super().on_shutdown()
+
+    def callbackFSMState(self, msg):
+        if self.state != msg.state and msg.state == "INTERSECTION_COORDINATION":
+            self.turn_type = -1
+        self.state = msg.state
+        self.timestamp = rospy.Time.now()
+        rospy.loginfo("State: {}\n Timestamp: {}".format(self.state, self.timestamp))
+
+    def callbackTimer(self, timer):
+        rospy.logwarn('Timer is called')
+        rospy.loginfo('AprilTag last time: {}'.format(self.last_time_apr_tag))
+        diff = rospy.Time.now() - self.last_time_apr_tag
+        rospy.logwarn('Time diff: {}, State: {}'.format(diff.to_sec(), self.state))
+        if self.state == 'INTERSECTION_COORDINATION' and diff.to_sec() > self.max_time_waiting:
+            rospy.loginfo('Bot is still in intersection')
+            self.fake_tag()
 
     def setupParam(self, param_name, default_value=rospy.client._Unspecified):
         value = rospy.get_param(param_name, default_value)
         rospy.set_param(param_name, value)
         return value
 
-    def callback(self, msg):
+    def fake_tag(self):
+        tags_msg = AprilTagDetectionArray()
+        tags_msg.header.stamp = rospy.Time.now()
+        tags_msg.header.frame_id = ""
+        tag = AprilTagDetection(
+            tag_id=58,
+            tag_family="tag36h11"
+        )
+        tags_msg.detections.append(tag)
+        self.fake_tag_publisher.publish(tags_msg)
 
+    def callbackDetections(self, msg):
         tag_infos = []
-
         new_tag_data = AprilTagsWithInfos()
-
         # Load tag detections message
+        if msg.detections:
+            self.last_time_apr_tag = rospy.Time.now()
         for detection in msg.detections:
-
             # ------ start tag info processing
             rospy.loginfo("detection.tag_id = %s", str(detection.tag_id))
             new_info = TagInfo()
-            #Can use id 1 as long as no bundles are used
+            # Can use id 1 as long as no bundles are used
             new_info.id = int(detection.tag_id)
             id_info = self.tags_dict[new_info.id]
-            #rospy.loginfo("[%s] report detected id=[%s] for april tag!",self.node_name,new_info.id)
+            # rospy.loginfo("[%s] report detected id=[%s] for april tag!",self.node_name,new_info.id)
             # Check yaml file to fill in ID-specific information
             new_info.tag_type = self.sign_types[id_info['tag_type']]
             if new_info.tag_type == self.info.S_NAME:
@@ -116,7 +154,10 @@ class AprilPostPros(object):
                 # intersection apriltag event
                 msg_intersection = BoolStamped()
                 msg_intersection.header.stamp = rospy.Time(0)
-                if (new_info.traffic_sign_type == TagInfo.FOUR_WAY) or (new_info.traffic_sign_type == TagInfo.RIGHT_T_INTERSECT) or (new_info.traffic_sign_type == TagInfo.LEFT_T_INTERSECT) or (new_info.traffic_sign_type == TagInfo.T_INTERSECTION):
+                if (new_info.traffic_sign_type == TagInfo.FOUR_WAY) or (
+                        new_info.traffic_sign_type == TagInfo.RIGHT_T_INTERSECT) or (
+                        new_info.traffic_sign_type == TagInfo.LEFT_T_INTERSECT) or (
+                        new_info.traffic_sign_type == TagInfo.T_INTERSECTION):
                     msg_intersection.data = True
                 else:
                     msg_intersection.data = False
@@ -139,23 +180,23 @@ class AprilPostPros(object):
             tag_infos.append(new_info)
             # --- end tag info processing
 
-
             # Define the transforms
             veh_t_camxout = tr.translation_matrix((self.camera_x, self.camera_y, self.camera_z))
-            veh_R_camxout = tr.euler_matrix(0, self.camera_theta*np.pi/180, 0, 'rxyz')
-            veh_T_camxout = tr.concatenate_matrices(veh_t_camxout, veh_R_camxout)   # 4x4 Homogeneous Transform Matrix
+            veh_R_camxout = tr.euler_matrix(0, self.camera_theta * np.pi / 180, 0, 'rxyz')
+            veh_T_camxout = tr.concatenate_matrices(veh_t_camxout, veh_R_camxout)  # 4x4 Homogeneous Transform Matrix
 
-            camxout_T_camzout = tr.euler_matrix(-np.pi/2,0,-np.pi/2,'rzyx')
+            camxout_T_camzout = tr.euler_matrix(-np.pi / 2, 0, -np.pi / 2, 'rzyx')
             veh_T_camzout = tr.concatenate_matrices(veh_T_camxout, camxout_T_camzout)
 
-            tagzout_T_tagxout = tr.euler_matrix(-np.pi/2, 0, np.pi/2, 'rxyz')
+            tagzout_T_tagxout = tr.euler_matrix(-np.pi / 2, 0, np.pi / 2, 'rxyz')
 
-            #Load translation
+            # Load translation
             trans = detection.transform.translation
             rot = detection.transform.rotation
             header = Header()
             header.stamp = rospy.Time.now()
-            camzout_t_tagzout = tr.translation_matrix((trans.x*self.scale_x, trans.y*self.scale_y, trans.z*self.scale_z))
+            camzout_t_tagzout = tr.translation_matrix(
+                (trans.x * self.scale_x, trans.y * self.scale_y, trans.z * self.scale_z))
             camzout_R_tagzout = tr.quaternion_matrix((rot.x, rot.y, rot.z, rot.w))
             camzout_T_tagzout = tr.concatenate_matrices(camzout_t_tagzout, camzout_R_tagzout)
 
@@ -172,6 +213,7 @@ class AprilPostPros(object):
         new_tag_data.infos = tag_infos
         # Publish Message
         self.pub_postPros.publish(new_tag_data)
+
 
 
 if __name__ == '__main__':
