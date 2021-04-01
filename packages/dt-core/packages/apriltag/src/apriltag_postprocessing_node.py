@@ -114,7 +114,7 @@ class AprilPostPros(object):
         tags_msg.header.stamp = rospy.Time.now()
         tags_msg.header.frame_id = ""
         tag = AprilTagDetection(
-            tag_id=58,
+            tag_id=56,
             tag_family="tag36h11"
         )
         tags_msg.detections.append(tag)
