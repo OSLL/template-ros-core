@@ -78,6 +78,7 @@ class AprilPostPros(object):
 
         rospy.loginfo("[%s] has started", self.node_name)
         self.sub_fsm = rospy.Subscriber("~fsm_state", FSMState, self.callbackFSMState)
+        self.fake_tag_publisher = rospy.Publisher("~detections", AprilTagDetectionArray, queue_size=1)
         self.timer = rospy.Timer(rospy.Duration(1), self.callbackTimer)
 
     def shutdown_hook(self):
@@ -101,11 +102,23 @@ class AprilPostPros(object):
         rospy.logwarn('Time diff: {}, State: {}'.format(diff.to_sec(), self.state))
         if self.state == 'INTERSECTION_COORDINATION' and diff.to_sec() > self.max_time_waiting:
             rospy.loginfo('Bot is still in intersection')
+            self.fake_tag()
 
     def setupParam(self, param_name, default_value=rospy.client._Unspecified):
         value = rospy.get_param(param_name, default_value)
         rospy.set_param(param_name, value)
         return value
+
+    def fake_tag(self):
+        tags_msg = AprilTagDetectionArray()
+        tags_msg.header.stamp = rospy.Time.now()
+        tags_msg.header.frame_id = ""
+        tag = AprilTagDetection(
+            tag_id=58,
+            tag_family="tag36h11"
+        )
+        tags_msg.detections.append(tag)
+        self.fake_tag_publisher.publish(tags_msg)
 
     def callbackDetections(self, msg):
         tag_infos = []
